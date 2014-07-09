@@ -1,9 +1,30 @@
 #include <asterisk.h>
+#include <asterisk/channel.h>
 #include <asterisk/module.h>
 #include <asterisk/manager.h>
 
 static int check_freeze_action(struct mansession *s, const struct message *m)
 {
+	unsigned int max_wait_time = 30 * 1000000;
+	unsigned int wait_time = 1000;
+	unsigned int n = max_wait_time / wait_time;
+
+	const char *id = astman_get_header(m, "ActionID");
+
+	ast_log(LOG_DEBUG, "Testing the global channel container lock...\n");
+	if (!ast_channel_check_lock(n, wait_time)) {
+		ast_log(LOG_DEBUG, "Success\n");
+		astman_append(s, "Response: Success\r\n");
+	} else {
+		ast_log(LOG_DEBUG, "Fail\n");
+		ast_log(LOG_ERROR, "Failed to acquire the global channel container lock, asterisk is most likely deadlocked\n");
+		astman_append(s, "Response: Fail\r\n");
+	}
+
+	if (!ast_strlen_zero(id)) {
+		astman_append(s, "ActionID: %s\r\n", id);
+	}
+
 	return AMI_SUCCESS;
 }
 
