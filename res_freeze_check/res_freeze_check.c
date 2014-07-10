@@ -28,7 +28,7 @@ static int check_freeze_action(struct mansession *s, const struct message *m)
 	return AMI_SUCCESS;
 }
 
-static int load(void)
+static int load_module(void)
 {
 	ast_manager_register2(
 		"CheckFreeze",
@@ -43,18 +43,14 @@ static int load(void)
 	return AST_MODULE_LOAD_SUCCESS;
 }
 
-static int unload(void)
+static int unload_module(void)
 {
 	ast_manager_unregister("CheckFreeze");
 
 	return 0;
 }
 
-AST_MODULE_INFO(
-	ASTERISK_GPL_KEY,
-	AST_MODFLAG_LOAD_ORDER,
-	"Freeze detection module",
-	.load = load,
-	.unload = unload,
-	.load_pri = AST_MODPRI_DEFAULT,
+AST_MODULE_INFO(ASTERISK_GPL_KEY, AST_MODFLAG_DEFAULT, "Freeze Detection Module",
+	.load = load_module,
+	.unload = unload_module,
 );
