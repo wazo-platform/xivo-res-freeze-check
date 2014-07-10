@@ -6,17 +6,28 @@
 
 static int dangerous_commands_enabled = 0;
 
+static int check_locks()
+{
+	ast_log(LOG_DEBUG, "Testing the global channel container lock...\n");
+
+	if (ast_channels_check_lock(10)) {
+		ast_log(LOG_DEBUG, "Fail\n");
+		ast_log(LOG_ERROR, "Failed to acquire the global channel container lock, asterisk is most likely deadlocked\n");
+		return -1;
+	} else {
+		ast_log(LOG_DEBUG, "Success\n");
+	}
+
+	return 0;
+}
+
 static int check_freeze_action(struct mansession *s, const struct message *m)
 {
 	const char *id = astman_get_header(m, "ActionID");
 
-	ast_log(LOG_DEBUG, "Testing the global channel container lock...\n");
-	if (!ast_channels_check_lock(10)) {
-		ast_log(LOG_DEBUG, "Success\n");
+	if (!check_locks()) {
 		astman_append(s, "Response: Success\r\n");
 	} else {
-		ast_log(LOG_DEBUG, "Fail\n");
-		ast_log(LOG_ERROR, "Failed to acquire the global channel container lock, asterisk is most likely deadlocked\n");
 		astman_append(s, "Response: Fail\r\n");
 	}
 
