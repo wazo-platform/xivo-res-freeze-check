@@ -66,8 +66,69 @@ static char *cli_enable(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a
 	return CLI_SUCCESS;
 }
 
+static char *cli_check(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
+{
+	int is_locked = 0;
+
+	switch (cmd) {
+		case CLI_INIT:
+			e->command = "freeze check";
+			e->usage = "Usage: freeze check\n";
+			return NULL;
+		case CLI_GENERATE:
+			return NULL;
+	}
+
+	if (check_locks()) {
+		ast_cli(a->fd, "Asterisk is most likely DEADLOCKED\n");
+	} else {
+		ast_cli(a->fd, "Asterisk seems to be fine\n");
+	}
+
+	return CLI_SUCCESS;
+}
+
+
+static char *cli_channel(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
+{
+	const char *what;
+
+	switch (cmd) {
+		case CLI_INIT:
+			e->command = "freeze channel {lock|unlock}";
+			e->usage = "Usage: freeze channel {lock|unlock}\n";
+			return NULL;
+		case CLI_GENERATE:
+			return NULL;
+	}
+
+	what = a->argv[e->args - 1];
+
+	if (!dangerous_commands_enabled) {
+		ast_cli(a->fd, "Dangerous freeze CLI commands are disabled.\n");
+		return CLI_FAILURE;
+	}
+
+	if (!strcasecmp(what, "lock")) {
+		ast_channels_lock();
+		ast_cli(a->fd, "The global channel container is now LOCKED\n");
+		ast_log(LOG_WARNING, "The global channel container is now LOCKED\n");
+	} else if (!strcasecmp(what, "unlock")) {
+		ast_channels_unlock();
+		ast_cli(a->fd, "The global channel contained is now UNLOCKED.\n");
+		ast_log(LOG_WARNING, "The global channel container is now UNLOCKED\n");
+	} else {
+		return CLI_SHOWUSAGE;
+	}
+
+	return CLI_SUCCESS;
+}
+
+
 static struct ast_cli_entry cli_entries[] = {
 	AST_CLI_DEFINE(cli_enable, "Enable/Disable dangerous freeze CLI commands"),
+	AST_CLI_DEFINE(cli_channel, "Lock/Unlock the global channel container lock"),
+	AST_CLI_DEFINE(cli_check, "Check for every supported locks"),
 };
 
 static int load_module(void)
