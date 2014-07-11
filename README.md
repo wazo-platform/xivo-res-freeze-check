@@ -21,3 +21,44 @@ Installing from a remote machine
 ================================
 
 ./buildh makei
+
+
+Usage
+=====
+
+CLI
+---
+
+Check if asterisk is deadlocked
+
+```
+freeze check
+```
+
+
+Enable/Disable locking commands
+
+```
+freeze {enable,disable}
+```
+
+Lock/Unlock the global channel container
+
+```
+freeze channel {lock,unlock}
+```
+
+AMI
+---
+
+Check if asterisk is deadlocked
+
+```
+Action: FreezeCheck
+```
+
+Asterisk response
+
+```
+Response: {Success,Fail}
+```
