@@ -54,7 +54,7 @@ AMI
 Check if asterisk is deadlocked
 
 ```
-Action: FreezeCheck
+Action: CheckFreeze
 ```
 
 Asterisk response
