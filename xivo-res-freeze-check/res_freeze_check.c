@@ -4,14 +4,15 @@
 #include <asterisk/module.h>
 #include <asterisk/manager.h>
 
+#define CHECK_TIMEOUT_SECS 10
+
 static int dangerous_commands_enabled = 0;
 
-static int check_locks()
+static int check_locks(void)
 {
 	ast_log(LOG_DEBUG, "Testing the global channel container lock...\n");
 
-	if (ast_channels_check_lock(10)) {
-		ast_log(LOG_DEBUG, "Fail\n");
+	if (ast_channels_check_lock(CHECK_TIMEOUT_SECS)) {
 		ast_log(LOG_ERROR, "Failed to acquire the global channel container lock, asterisk is most likely deadlocked\n");
 		return -1;
 	} else {
@@ -25,10 +26,10 @@ static int check_freeze_action(struct mansession *s, const struct message *m)
 {
 	const char *id = astman_get_header(m, "ActionID");
 
-	if (!check_locks()) {
-		astman_append(s, "Response: Success\r\n");
-	} else {
+	if (check_locks()) {
 		astman_append(s, "Response: Fail\r\n");
+	} else {
+		astman_append(s, "Response: Success\r\n");
 	}
 
 	if (!ast_strlen_zero(id)) {
@@ -68,8 +69,6 @@ static char *cli_enable(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a
 
 static char *cli_check(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 {
-	int is_locked = 0;
-
 	switch (cmd) {
 		case CLI_INIT:
 			e->command = "freeze check";
@@ -87,7 +86,6 @@ static char *cli_check(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 
 	return CLI_SUCCESS;
 }
-
 
 static char *cli_channel(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 {
@@ -124,7 +122,6 @@ static char *cli_channel(struct ast_cli_entry *e, int cmd, struct ast_cli_args *
 	return CLI_SUCCESS;
 }
 
-
 static struct ast_cli_entry cli_entries[] = {
 	AST_CLI_DEFINE(cli_enable, "Enable/Disable dangerous freeze CLI commands"),
 	AST_CLI_DEFINE(cli_channel, "Lock/Unlock the global channel container lock"),
@@ -140,7 +137,7 @@ static int load_module(void)
 		ast_module_info->self,
 		"Check for freezes",
 		"This action may be used to detect some freezes.\n"
-		"This check is not in any way garanteed to succeed in detecting every freezes."
+		"This check is not in any way guaranteed to succeed in detecting every freezes."
 	);
 
 	ast_cli_register_multiple(cli_entries, ARRAY_LEN(cli_entries));
