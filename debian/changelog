@@ -1,3 +1,9 @@
+xivo-res-freeze-check (15.20~20151208.182453-1) xivo-dev; urgency=medium
+
+  * Update Jessie
+
+ -- Francois Blackburn <fblackburn@avencall.com>  Tue, 08 Dec 2015 13:24:53 -0500
+
 xivo-res-freeze-check (15.11~20140714.123210.74645c9-wheezy-1+build2) xivo-dev; urgency=low
 
   * Update packaging
