@@ -8,7 +8,7 @@ import os
 import subprocess
 import sys
 
-CONFIG_FILE = '~/.res_check_freeze-buildh-config'
+CONFIG_FILE = '~/.res_freeze_check-buildh-config'
 SHELL = 'sh'
 
 
@@ -24,7 +24,7 @@ def main():
             print >>sys.stderr, 'Example:\n'
             print >>sys.stderr, '[default]'
             print >>sys.stderr, 'host = skaro-dev-1'
-            print >>sys.stderr, 'directory = res_check_freeze'
+            print >>sys.stderr, 'directory = res_freeze_check'
             raise SystemExit(1)
         else:
             raise
