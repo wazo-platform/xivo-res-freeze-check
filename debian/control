@@ -1,7 +1,7 @@
 Source: xivo-res-freeze-check
 Priority: extra
 Maintainer: XiVO Dev Team <dev@avencall.com>
-Build-Depends: debhelper (>= 9), asterisk-dev (>= 11.9.0+xivo.14.13~20140710)
+Build-Depends: debhelper (>= 9), asterisk-dev (>= 8:13.9.1-1~xivo5)
 Standards-Version: 3.8.4
 Section: comm
 Homepage: http://documentation.xivo.io/
@@ -11,6 +11,6 @@ Vcs-Browser: https://github.com/xivo-pbx/res_freeze_check
 Package: xivo-res-freeze-check
 Section: comm
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, asterisk (>= 11.9.0+xivo.14.13~20140710)
+Depends: ${shlibs:Depends}, ${misc:Depends}, asterisk (>= 8:13.9.1-1~xivo5)
 Provides: xivo-res-freeze-check
 Description: Simple asterisk module to check for asterisk freezes
