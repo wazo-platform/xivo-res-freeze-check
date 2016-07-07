@@ -1,6 +1,6 @@
 TARGET = res_freeze_check.so
 OBJECTS = res_freeze_check.o
-CFLAGS = -Wall -Wextra -Wno-unused-parameter -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Winit-self -Wmissing-format-attribute -Wformat=2 -g -fPIC -D'_GNU_SOURCE' -D'AST_MODULE="res_chan_freeze"'
+CFLAGS = -Wall -Wextra -Wno-unused-parameter -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Winit-self -Wmissing-format-attribute -Wformat=2 -g -fPIC -D'_GNU_SOURCE' -D'AST_MODULE="res_freeze_check"'
 LDFLAGS = -Wall -shared
 
 .PHONY: install
