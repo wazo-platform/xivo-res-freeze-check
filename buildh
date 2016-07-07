@@ -69,9 +69,9 @@ def command_makei(profile):
     remote_script = []
     remote_script.append(_build_cd_script(profile['directory']))
     remote_script.append(_build_make_script())
-    remote_script.append('systemctl start asterisk.service')
-    remote_script.append('make install')
     remote_script.append('systemctl stop asterisk.service')
+    remote_script.append('make install')
+    remote_script.append('systemctl start asterisk.service')
     _exec_remote_script('\n'.join(remote_script), profile['host'])
 
 
