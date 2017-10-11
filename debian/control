@@ -2,10 +2,10 @@ Source: xivo-res-freeze-check
 Section: comm
 Priority: extra
 Maintainer: Wazo Maintainers <dev@wazo.community>
-Build-Depends: debhelper (>= 9), asterisk-dev (>= 8:14.0.0)
+Build-Depends: debhelper (>= 9), asterisk-dev (>= 8:15)
 Standards-Version: 3.9.6
 
 Package: xivo-res-freeze-check
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, asterisk (>= 8:14.0.0)
+Depends: ${shlibs:Depends}, ${misc:Depends}, asterisk (>= 8:15)
 Description: Simple asterisk module to check for asterisk freezes
