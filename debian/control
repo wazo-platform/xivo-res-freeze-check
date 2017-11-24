@@ -7,5 +7,5 @@ Standards-Version: 3.9.6
 
 Package: xivo-res-freeze-check
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, asterisk (>= 8:15) | asterisk-virtual (>= 8:15)
+Depends: ${shlibs:Depends}, ${misc:Depends}, asterisk (>= 8:15) | asterisk-virtual
 Description: Simple asterisk module to check for asterisk freezes
