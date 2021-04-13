@@ -51,3 +51,4 @@ Lock/Unlock the global channel container (for testing purpose)
 ```
 freeze channel {lock,unlock}
 ```
+
