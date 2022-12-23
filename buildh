@@ -1,6 +1,8 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 
-import argparse
+from __future__ import annotations
+
+from argparse import Namespace, ArgumentParser
 from configparser import RawConfigParser
 import errno
 import os
@@ -11,13 +13,13 @@ CONFIG_FILE = '~/.res_freeze_check-buildh-config'
 SHELL = 'sh'
 
 
-def main():
+def main() -> None:
     parsed_args = parse_args()
 
     config_filename = os.path.expanduser(CONFIG_FILE)
     try:
         config = read_config(config_filename)
-    except IOError as e:
+    except OSError as e:
         if e.errno == errno.ENOENT:
             print(f'error: need config file {config_filename!r}', file=sys.stderr)
             print('Example:\n', file=sys.stderr)
@@ -35,21 +37,21 @@ def main():
     command_fun(profile)
 
 
-def parse_args():
-    parser = argparse.ArgumentParser()
+def parse_args() -> Namespace:
+    parser = ArgumentParser()
     parser.add_argument('-p', '--profile', default='default', help='profile to use')
     parser.add_argument('command', choices=['make', 'makei'], help='command to execute')
     return parser.parse_args()
 
 
-def read_config(config_filename):
+def read_config(config_filename: str) -> RawConfigParser:
     config = RawConfigParser()
     with open(config_filename) as f:
         config.read_file(f)
     return config
 
 
-def command_make(profile):
+def command_make(profile: dict[str, str]) -> None:
     local_script = _build_rsync_script(profile['host'], profile['directory'])
     _exec_local_script(local_script)
 
@@ -60,7 +62,7 @@ def command_make(profile):
     _exec_remote_script('\n'.join(remote_script), profile['host'])
 
 
-def command_makei(profile):
+def command_makei(profile: dict[str, str]) -> None:
     local_script = _build_rsync_script(profile['host'], profile['directory'])
     _exec_local_script(local_script)
     remote_script = [
@@ -73,17 +75,17 @@ def command_makei(profile):
     _exec_remote_script('\n'.join(remote_script), profile['host'])
 
 
-def _build_cd_script(directory):
+def _build_cd_script(directory: str) -> str:
     return f"cd '{directory}'"
 
 
-def _build_make_script():
+def _build_make_script() -> str:
     # version = subprocess.check_output(['git', 'describe']).rstrip()
     # return f'make VERSION={version}'
     return 'make VERSION=0.0.1'
 
 
-def _build_rsync_script(host, directory):
+def _build_rsync_script(host: str, directory: str) -> str:
     return f'''
 rsync -v -rlp \
     --include '*.c' \
@@ -94,17 +96,17 @@ rsync -v -rlp \
 '''
 
 
-def _exec_local_script(script):
+def _exec_local_script(script: str) -> None:
     _exec_command([SHELL, '-e'], script)
 
 
-def _exec_remote_script(script, host):
+def _exec_remote_script(script: str, host: str) -> None:
     _exec_command(['ssh', '-l', 'root', host, SHELL, '-e'], script)
 
 
-def _exec_command(args, process_input):
+def _exec_command(args: list[str], process_input: str) -> None:
     p = subprocess.Popen(args, stdin=subprocess.PIPE)
-    p.communicate(process_input)
+    p.communicate(process_input.encode('utf-8'))
     if p.returncode:
         print(f'command {args} returned non-zero status code: {p.returncode}', file=sys.stderr)
 
