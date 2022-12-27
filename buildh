@@ -1,8 +1,9 @@
-#!/usr/bin/python
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
 
-import argparse
-import ConfigParser
+from __future__ import annotations
+
+from argparse import Namespace, ArgumentParser
+from configparser import RawConfigParser
 import errno
 import os
 import subprocess
@@ -12,103 +13,102 @@ CONFIG_FILE = '~/.res_freeze_check-buildh-config'
 SHELL = 'sh'
 
 
-def main():
+def main() -> None:
     parsed_args = parse_args()
 
     config_filename = os.path.expanduser(CONFIG_FILE)
     try:
         config = read_config(config_filename)
-    except IOError as e:
+    except OSError as e:
         if e.errno == errno.ENOENT:
-            print >>sys.stderr, 'error: need config file {!r}'.format(config_filename)
-            print >>sys.stderr, 'Example:\n'
-            print >>sys.stderr, '[default]'
-            print >>sys.stderr, 'host = skaro-dev-1'
-            print >>sys.stderr, 'directory = res_freeze_check'
+            print(f'error: need config file {config_filename!r}', file=sys.stderr)
+            print('Example:\n', file=sys.stderr)
+            print('[default]', file=sys.stderr)
+            print('host = skaro-dev-1', file=sys.stderr)
+            print('directory = res_freeze_check', file=sys.stderr)
             raise SystemExit(1)
         else:
             raise
 
     profile = dict(config.items(parsed_args.profile))
 
-    command_name = 'command_{}'.format(parsed_args.command)
+    command_name = f'command_{parsed_args.command}'
     command_fun = globals()[command_name]
     command_fun(profile)
 
 
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-p', '--profile', default='default',
-                        help='profile to use')
-    parser.add_argument('command', choices=['make', 'makei'],
-                        help='command to execute')
+def parse_args() -> Namespace:
+    parser = ArgumentParser()
+    parser.add_argument('-p', '--profile', default='default', help='profile to use')
+    parser.add_argument('command', choices=['make', 'makei'], help='command to execute')
     return parser.parse_args()
 
 
-def read_config(config_filename):
-    config = ConfigParser.RawConfigParser()
-    with open(config_filename) as fobj:
-        config.readfp(fobj)
+def read_config(config_filename: str) -> RawConfigParser:
+    config = RawConfigParser()
+    with open(config_filename) as f:
+        config.read_file(f)
     return config
 
 
-def command_make(profile):
+def command_make(profile: dict[str, str]) -> None:
     local_script = _build_rsync_script(profile['host'], profile['directory'])
     _exec_local_script(local_script)
 
-    remote_script = []
-    remote_script.append(_build_cd_script(profile['directory']))
-    remote_script.append(_build_make_script())
+    remote_script = [
+        _build_cd_script(profile['directory']),
+        _build_make_script(),
+    ]
     _exec_remote_script('\n'.join(remote_script), profile['host'])
 
 
-def command_makei(profile):
+def command_makei(profile: dict[str, str]) -> None:
     local_script = _build_rsync_script(profile['host'], profile['directory'])
     _exec_local_script(local_script)
-
-    remote_script = []
-    remote_script.append(_build_cd_script(profile['directory']))
-    remote_script.append(_build_make_script())
-    remote_script.append('systemctl stop asterisk.service')
-    remote_script.append('make install')
-    remote_script.append('systemctl start asterisk.service')
+    remote_script = [
+        _build_cd_script(profile['directory']),
+        _build_make_script(),
+        'systemctl stop asterisk.service',
+        'make install',
+        'systemctl start asterisk.service',
+    ]
     _exec_remote_script('\n'.join(remote_script), profile['host'])
 
 
-def _build_cd_script(directory):
-    return "cd '{}'".format(directory)
+def _build_cd_script(directory: str) -> str:
+    return f"cd '{directory}'"
 
 
-def _build_make_script():
+def _build_make_script() -> str:
     # version = subprocess.check_output(['git', 'describe']).rstrip()
-    # return 'make VERSION={}'.format(version)
+    # return f'make VERSION={version}'
     return 'make VERSION=0.0.1'
 
 
-def _build_rsync_script(host, directory):
-    return '''
+def _build_rsync_script(host: str, directory: str) -> str:
+    return f'''
 rsync -v -rlp \
     --include '*.c' \
     --include '*.h' \
     --include /Makefile \
     --exclude '*' \
     . {host}:{directory}
-'''.format(host=host, directory=directory)
+'''
 
 
-def _exec_local_script(script):
+def _exec_local_script(script: str) -> None:
     _exec_command([SHELL, '-e'], script)
 
 
-def _exec_remote_script(script, host):
+def _exec_remote_script(script: str, host: str) -> None:
     _exec_command(['ssh', '-l', 'root', host, SHELL, '-e'], script)
 
 
-def _exec_command(args, process_input):
+def _exec_command(args: list[str], process_input: str) -> None:
     p = subprocess.Popen(args, stdin=subprocess.PIPE)
-    p.communicate(process_input)
+    p.communicate(process_input.encode('utf-8'))
     if p.returncode:
-        print >>sys.stderr, 'command {} returned non-zero status code: {}'.format(args, p.returncode)
+        print(f'command {args} returned non-zero status code: {p.returncode}', file=sys.stderr)
 
 
 if __name__ == '__main__':
