@@ -93,6 +93,12 @@ static int checker_check_mutexes(struct checker *c)
 		return -1;
 	}
 
+	ret = check_mutex(ast_queues_get_mutex(), c->timeout, "global queues container");
+	if (ret == CHECK_MUTEX_TIMEDOUT) {
+		ast_log(LOG_ERROR, "failed to acquire the global queues container lock in under %d seconds\n", c->timeout);
+		return -1;
+	}
+
 	return 0;
 }
 
@@ -219,9 +225,45 @@ static char *cli_channel(struct ast_cli_entry *e, int cmd, struct ast_cli_args *
 	return CLI_SUCCESS;
 }
 
+static char *cli_queue(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
+{
+	const char *what;
+
+	switch (cmd) {
+		case CLI_INIT:
+			e->command = "freeze queue {lock|unlock}";
+			e->usage = "Usage: freeze queue {lock|unlock}\n";
+			return NULL;
+		case CLI_GENERATE:
+			return NULL;
+	}
+
+	what = a->argv[e->args - 1];
+
+	if (!dangerous_commands_enabled) {
+		ast_cli(a->fd, "Dangerous freeze CLI commands are disabled.\n");
+		return CLI_FAILURE;
+	}
+
+	if (!strcasecmp(what, "lock")) {
+		ast_mutex_lock(ast_queues_get_mutex());
+		ast_cli(a->fd, "The global queue container is now LOCKED\n");
+		ast_log(LOG_WARNING, "The global queue container is now LOCKED\n");
+	} else if (!strcasecmp(what, "unlock")) {
+		ast_mutex_unlock(ast_queues_get_mutex());
+		ast_cli(a->fd, "The global queue contained is now UNLOCKED.\n");
+		ast_log(LOG_WARNING, "The global queue container is now UNLOCKED\n");
+	} else {
+		return CLI_SHOWUSAGE;
+	}
+
+	return CLI_SUCCESS;
+}
+
 static struct ast_cli_entry cli_entries[] = {
 	AST_CLI_DEFINE(cli_enable, "Enable/Disable dangerous freeze CLI commands"),
 	AST_CLI_DEFINE(cli_channel, "Lock/Unlock the global channel container lock"),
+	AST_CLI_DEFINE(cli_queue, "Lock/Unlock the global queue container lock"),
 };
 
 static int load_module(void)
