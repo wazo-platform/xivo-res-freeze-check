@@ -1,10 +1,16 @@
 #include <asterisk.h>
+#include <asterisk/app.h>
 #include <asterisk/channel.h>
 #include <asterisk/cli.h>
+#include <asterisk/dlinkedlists.h>
 #include <asterisk/lock.h>
 #include <asterisk/logger.h>
 #include <asterisk/module.h>
+#include <asterisk/pbx.h>
+#include <asterisk/vector.h>
 #include <sys/eventfd.h>
+
+#include <dlfcn.h>
 
 #define DEFAULT_CHECK_INTERVAL_SECS 60
 #define DEFAULT_CHECK_TIMEOUT_SECS 30
@@ -26,8 +32,79 @@ struct checker {
 	int timeout;	/* check timeout in seconds */
 };
 
+struct ast_module_user {
+	struct ast_channel *chan;
+	AST_LIST_ENTRY(ast_module_user) entry;
+};
+
+AST_DLLIST_HEAD(module_user_list, ast_module_user);
+AST_VECTOR(module_vector, struct ast_module *);
+
+struct ast_module {
+	const struct ast_module_info *info;
+	/*! Used to get module references into refs log */
+	void *ref_debug;
+	/*! The shared lib. */
+	void *lib;
+	/*! Number of 'users' and other references currently holding the module. */
+	int usecount;
+	/*! List of users holding the module. */
+	struct module_user_list users;
+
+	/*! List of required module names. */
+	struct ast_vector_string requires;
+	/*! List of optional api modules. */
+	struct ast_vector_string optional_modules;
+	/*! List of modules this enhances. */
+	struct ast_vector_string enhances;
+
+	/*!
+	 * \brief Vector holding pointers to modules we have a reference to.
+	 *
+	 * When one module requires another, the required module gets added
+	 * to this list with a reference.
+	 */
+	struct module_vector reffed_deps;
+	struct {
+		/*! The module running and ready to accept requests. */
+		unsigned int running:1;
+		/*! The module has declined to start. */
+		unsigned int declined:1;
+		/*! This module is being held open until it's time to shutdown. */
+		unsigned int keepuntilshutdown:1;
+		/*! The module is built-in. */
+		unsigned int builtin:1;
+		/*! The admin has declared this module is required. */
+		unsigned int required:1;
+		/*! This module is marked for preload. */
+		unsigned int preload:1;
+	} flags;
+	AST_DLLIST_ENTRY(ast_module) entry;
+	char resource[0];
+};
+
+/*! \brief ast_app: A registered application */
+struct ast_app {
+	int (*execute)(struct ast_channel *chan, const char *data);
+	AST_DECLARE_STRING_FIELDS(
+		AST_STRING_FIELD(synopsis);     /*!< Synopsis text for 'show applications' */
+		AST_STRING_FIELD(since);        /*!< Since text for 'show applications' */
+		AST_STRING_FIELD(description);  /*!< Description (help text) for 'show application &lt;name&gt;' */
+		AST_STRING_FIELD(syntax);       /*!< Syntax text for 'core show applications' */
+		AST_STRING_FIELD(arguments);    /*!< Arguments description */
+		AST_STRING_FIELD(seealso);      /*!< See also */
+	);
+#ifdef AST_XML_DOCS
+	enum ast_doc_src docsrc;		/*!< Where the documentation come from. */
+#endif
+	AST_RWLIST_ENTRY(ast_app) list;		/*!< Next app in list */
+	struct ast_module *module;		/*!< Module this app belongs to */
+	char name[0];				/*!< Name of the application */
+};
+
 static struct checker global_checker;
 static int dangerous_commands_enabled = 0;
+ast_mutex_t* (*ast_queues_get_mutex)(void);
 
 static int check_mutex(ast_mutex_t *mutex, int timeout, const char *name)
 {
@@ -268,6 +345,21 @@ static struct ast_cli_entry cli_entries[] = {
 
 static int load_module(void)
 {
+	struct ast_app *app_queue;
+	void *symbol_address;
+
+	if (!(app_queue = pbx_findapp("Queue"))) {
+		ast_log(LOG_WARNING, "There is no Queue application available!\n");
+		return -1;
+	}
+
+	symbol_address = dlsym(app_queue->module->lib, "ast_queues_get_mutex");
+	if (!symbol_address) {
+		ast_log(LOG_WARNING, "The Queue application does not expose ast_queues_get_mutex!\n");
+		return -1;
+	}
+	ast_queues_get_mutex = symbol_address;
+
 	if (checker_init(&global_checker)) {
 		goto fail1;
 	}
@@ -300,4 +392,5 @@ static int unload_module(void)
 AST_MODULE_INFO(ASTERISK_GPL_KEY, AST_MODFLAG_DEFAULT, "Freeze Detection Module",
 	.load = load_module,
 	.unload = unload_module,
+	.requires = "app_queue",
 );
