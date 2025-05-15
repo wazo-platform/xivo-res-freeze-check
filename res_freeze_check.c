@@ -1,5 +1,6 @@
 #include <asterisk.h>
 #include <asterisk/app.h>
+#include <asterisk/astobj2.h>
 #include <asterisk/channel.h>
 #include <asterisk/cli.h>
 #include <asterisk/dlinkedlists.h>
@@ -102,9 +103,13 @@ struct ast_app {
 	char name[0];				/*!< Name of the application */
 };
 
+static struct ast_app *app_queue;
 static struct checker global_checker;
 static int dangerous_commands_enabled = 0;
+static int queue_checks_enabled = 0;
+
 ast_mutex_t* (*ast_queues_get_mutex)(void);
+struct ao2_container* (*ast_queues_get_container)(void);
 
 static int check_mutex(ast_mutex_t *mutex, int timeout, const char *name)
 {
@@ -163,6 +168,9 @@ static void checker_destroy(struct checker *c)
 static int checker_check_mutexes(struct checker *c)
 {
 	int ret;
+	struct ao2_container *queues;
+	struct ao2_iterator qiter;
+	void *q;	/* We don't really care about the type, we only want to lock/unlock it */
 
 	ret = check_mutex(ast_channels_get_mutex(), c->timeout, "global channels container");
 	if (ret == CHECK_MUTEX_TIMEDOUT) {
@@ -170,10 +178,23 @@ static int checker_check_mutexes(struct checker *c)
 		return -1;
 	}
 
-	ret = check_mutex(ast_queues_get_mutex(), c->timeout, "global queues container");
-	if (ret == CHECK_MUTEX_TIMEDOUT) {
-		ast_log(LOG_ERROR, "failed to acquire the global queues container lock in under %d seconds\n", c->timeout);
-		return -1;
+	if (queue_checks_enabled) {
+		queues = ast_queues_get_container();
+		/* First checking container lock */
+		ret = check_mutex(ast_queues_get_mutex(), c->timeout, "global queues container");
+		if (ret == CHECK_MUTEX_TIMEDOUT) {
+			ast_log(LOG_ERROR, "failed to acquire the global queues container lock in under %d seconds\n", c->timeout);
+			return -1;
+		}
+		/* Then each individual queues */
+		qiter = ao2_iterator_init(queues, 0);
+		while ((q = ao2_t_iterator_next(&qiter, "Iterate over queues"))) {
+			ret = check_mutex(ao2_object_get_lockaddr(q), c->timeout, "individual queue");
+			if (ret == CHECK_MUTEX_TIMEDOUT) {
+				ast_log(LOG_ERROR, "failed to acquire the individual queue lock in under %d seconds\n", c->timeout);
+				return -1;
+			}
+		}
 	}
 
 	return 0;
@@ -305,11 +326,20 @@ static char *cli_channel(struct ast_cli_entry *e, int cmd, struct ast_cli_args *
 static char *cli_queue(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 {
 	const char *what;
+	struct ao2_container *queues;
+	struct ao2_iterator qiter;
+	void *q;	/* We don't really care about the type, we only want to lock/unlock */
+
+	if (!queue_checks_enabled) {
+		ast_cli(a->fd, "Queue lock CLI commands are disabled.\n");
+		return CLI_FAILURE;
+	}
+	queues = ast_queues_get_container();
 
 	switch (cmd) {
 		case CLI_INIT:
-			e->command = "freeze queue {lock|unlock}";
-			e->usage = "Usage: freeze queue {lock|unlock}\n";
+			e->command = "freeze queue {global_lock|lock|global_unlock|unlock}";
+			e->usage = "Usage: freeze queue {global_lock|lock|global_unlock|unlock}\n";
 			return NULL;
 		case CLI_GENERATE:
 			return NULL;
@@ -322,14 +352,28 @@ static char *cli_queue(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 		return CLI_FAILURE;
 	}
 
-	if (!strcasecmp(what, "lock")) {
+	if (!strcasecmp(what, "global_lock")) {
 		ast_mutex_lock(ast_queues_get_mutex());
 		ast_cli(a->fd, "The global queue container is now LOCKED\n");
 		ast_log(LOG_WARNING, "The global queue container is now LOCKED\n");
-	} else if (!strcasecmp(what, "unlock")) {
+	} else if (!strcasecmp(what, "lock")) {
+		qiter = ao2_iterator_init(queues, 0);
+		while ((q = ao2_t_iterator_next(&qiter, "Iterate over queues"))) {
+			ast_mutex_lock(ao2_object_get_lockaddr(q));
+		}
+		ast_cli(a->fd, "All queues are now LOCKED\n");
+		ast_log(LOG_WARNING, "All queues are now LOCKED\n");
+	} else if (!strcasecmp(what, "global_unlock")) {
 		ast_mutex_unlock(ast_queues_get_mutex());
-		ast_cli(a->fd, "The global queue contained is now UNLOCKED.\n");
+		ast_cli(a->fd, "The global queue container is now UNLOCKED.\n");
 		ast_log(LOG_WARNING, "The global queue container is now UNLOCKED\n");
+	} else if (!strcasecmp(what, "unlock")) {
+		qiter = ao2_iterator_init(queues, 0);
+		while ((q = ao2_t_iterator_next(&qiter, "Iterate over queues"))) {
+			ast_mutex_unlock(ao2_object_get_lockaddr(q));
+		}
+		ast_cli(a->fd, "All queues are now UNLOCKED.\n");
+		ast_log(LOG_WARNING, "All queues are now UNLOCKED\n");
 	} else {
 		return CLI_SHOWUSAGE;
 	}
@@ -345,20 +389,19 @@ static struct ast_cli_entry cli_entries[] = {
 
 static int load_module(void)
 {
-	struct ast_app *app_queue;
-	void *symbol_address;
-
-	if (!(app_queue = pbx_findapp("Queue"))) {
-		ast_log(LOG_WARNING, "There is no Queue application available!\n");
-		return -1;
+	if ((app_queue = pbx_findapp("Queue"))) {
+		ast_queues_get_mutex = dlsym(app_queue->module->lib, "ast_queues_get_mutex");
+		ast_queues_get_container = dlsym(app_queue->module->lib, "ast_queues_get_container");
+		if (!ast_queues_get_mutex || !ast_queues_get_container) {
+			ast_log(LOG_WARNING, "The Queue application does not expose necessary symbols! Disabling queue checks.\n");
+			queue_checks_enabled = 0;
+		} else {
+			queue_checks_enabled = 1;
+		}
+	} else {
+		ast_log(LOG_WARNING, "There is no Queue application available. Disabling queue checks.\n");
+		queue_checks_enabled = 0;
 	}
-
-	symbol_address = dlsym(app_queue->module->lib, "ast_queues_get_mutex");
-	if (!symbol_address) {
-		ast_log(LOG_WARNING, "The Queue application does not expose ast_queues_get_mutex!\n");
-		return -1;
-	}
-	ast_queues_get_mutex = symbol_address;
 
 	if (checker_init(&global_checker)) {
 		goto fail1;

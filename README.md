@@ -7,7 +7,8 @@ Once loaded, the module checks at regular intervals if asterisk is deadlocked or
 
 It currently checks if the lock on the global channels container can be
 acquired or not: if it can't, then it considers asterisk is deadlocked and aborts
-the process.
+the process. It does the same for the global queues container lock and all individual
+queues.
 
 ## Compilation dependencies
 
@@ -42,8 +43,8 @@ Lock/Unlock the global channel container (for testing purpose)
 freeze channel {lock,unlock}
 ```
 
-Lock/Unlock the global queue container (for testing purpose)
+Lock/Unlock the global queue container or all queues (for testing purpose)
 
 ```
-freeze queue {lock,unlock}
+freeze queue {global_lock,lock,global_unlock,unlock}
 ```
