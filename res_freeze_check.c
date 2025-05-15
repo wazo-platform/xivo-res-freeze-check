@@ -33,6 +33,11 @@ struct checker {
 	int timeout;	/* check timeout in seconds */
 };
 
+/*
+ * The following definitions are here so we can extract the library from app_queue.
+ * These structures are not defined in header files so we have to redefine them here.
+ * These definitions come from pbx_app.c and loader.c
+ */
 struct ast_module_user {
 	struct ast_channel *chan;
 	AST_LIST_ENTRY(ast_module_user) entry;
@@ -102,6 +107,7 @@ struct ast_app {
 	struct ast_module *module;		/*!< Module this app belongs to */
 	char name[0];				/*!< Name of the application */
 };
+/* Done with the definitions from pbx_app.c and loader.c */
 
 static struct ast_app *app_queue;
 static struct checker global_checker;
