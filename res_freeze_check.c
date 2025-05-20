@@ -114,7 +114,6 @@ static struct checker global_checker;
 static int dangerous_commands_enabled = 0;
 static int queue_checks_enabled = 0;
 
-ast_mutex_t* (*ast_queues_get_mutex)(void);
 struct ao2_container* (*ast_queues_get_container)(void);
 
 static int check_mutex(ast_mutex_t *mutex, int timeout, const char *name)
@@ -187,7 +186,7 @@ static int checker_check_mutexes(struct checker *c)
 	if (queue_checks_enabled) {
 		queues = ast_queues_get_container();
 		/* First checking container lock */
-		ret = check_mutex(ast_queues_get_mutex(), c->timeout, "global queues container");
+		ret = check_mutex(ao2_object_get_lockaddr(queues), c->timeout, "global queues container");
 		if (ret == CHECK_MUTEX_TIMEDOUT) {
 			ast_log(LOG_ERROR, "failed to acquire the global queues container lock in under %d seconds\n", c->timeout);
 			return -1;
@@ -333,14 +332,9 @@ static char *cli_queue(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 {
 	const char *what;
 	struct ao2_container *queues;
+	ast_mutex_t *queues_mutex;
 	struct ao2_iterator qiter;
 	void *q;	/* We don't really care about the type, we only want to lock/unlock */
-
-	if (!queue_checks_enabled) {
-		ast_cli(a->fd, "Queue lock CLI commands are disabled.\n");
-		return CLI_FAILURE;
-	}
-	queues = ast_queues_get_container();
 
 	switch (cmd) {
 		case CLI_INIT:
@@ -351,15 +345,28 @@ static char *cli_queue(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 			return NULL;
 	}
 
-	what = a->argv[e->args - 1];
-
 	if (!dangerous_commands_enabled) {
 		ast_cli(a->fd, "Dangerous freeze CLI commands are disabled.\n");
 		return CLI_FAILURE;
 	}
 
+	if (!queue_checks_enabled) {
+		ast_cli(a->fd, "Queue lock CLI commands are disabled.\n");
+		return CLI_FAILURE;
+	}
+
+	queues = ast_queues_get_container();
+	if (!queues) {
+		ast_cli(a->fd, "Could not obtain queues container. Aborting.\n");
+		ast_log(LOG_WARNING, "Could not obtain queues container. Aborting.\n");
+		return CLI_FAILURE;
+	}
+	queues_mutex = ao2_object_get_lockaddr(queues);
+
+	what = a->argv[e->args - 1];
+
 	if (!strcasecmp(what, "global_lock")) {
-		ast_mutex_lock(ast_queues_get_mutex());
+		ast_mutex_lock(queues_mutex);
 		ast_cli(a->fd, "The global queue container is now LOCKED\n");
 		ast_log(LOG_WARNING, "The global queue container is now LOCKED\n");
 	} else if (!strcasecmp(what, "lock")) {
@@ -370,7 +377,7 @@ static char *cli_queue(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 		ast_cli(a->fd, "All queues are now LOCKED\n");
 		ast_log(LOG_WARNING, "All queues are now LOCKED\n");
 	} else if (!strcasecmp(what, "global_unlock")) {
-		ast_mutex_unlock(ast_queues_get_mutex());
+		ast_mutex_unlock(queues_mutex);
 		ast_cli(a->fd, "The global queue container is now UNLOCKED.\n");
 		ast_log(LOG_WARNING, "The global queue container is now UNLOCKED\n");
 	} else if (!strcasecmp(what, "unlock")) {
@@ -396,9 +403,8 @@ static struct ast_cli_entry cli_entries[] = {
 static int load_module(void)
 {
 	if ((app_queue = pbx_findapp("Queue"))) {
-		ast_queues_get_mutex = dlsym(app_queue->module->lib, "ast_queues_get_mutex");
 		ast_queues_get_container = dlsym(app_queue->module->lib, "ast_queues_get_container");
-		if (!ast_queues_get_mutex || !ast_queues_get_container) {
+		if (!ast_queues_get_container) {
 			ast_log(LOG_WARNING, "The Queue application does not expose necessary symbols! Disabling queue checks.\n");
 			queue_checks_enabled = 0;
 		} else {
