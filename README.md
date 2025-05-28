@@ -1,44 +1,35 @@
-xivo-res-freeze-check
-=====================
+# xivo-res-freeze-check
 
 res_freeze_check is a simple asterisk module to help detect some common asterisk
 freezes.
 
-Once loaded, the module check at regular interval if asterisk is deadlocked or not.
+Once loaded, the module checks at regular intervals if asterisk is deadlocked or not.
 
-It currently only check if the lock on the global channels container can be
-acquired or not: if it can't, then it considers asterisk is deadlocked and abort
-the process.
+It currently checks if the lock on the global channels container can be
+acquired or not: if it can't, then it considers asterisk is deadlocked and aborts
+the process. It does the same for the global queues container lock and all individual
+queues.
 
-
-Compilation dependencies
-========================
+## Compilation dependencies
 
 * asterisk-dev
 
-
-Installing
-==========
+## Installing
 
 ```
 make
 make install
 ```
 
-
-Installing from a remote machine
-================================
+## Installing from a remote machine
 
 ```
 ./buildh makei
 ```
 
+## Usage
 
-Usage
-=====
-
-CLI
----
+### CLI
 
 Enable/Disable locking commands
 
@@ -50,4 +41,10 @@ Lock/Unlock the global channel container (for testing purpose)
 
 ```
 freeze channel {lock,unlock}
+```
+
+Lock/Unlock the global queue container or all queues (for testing purpose)
+
+```
+freeze queue {global_lock,lock,global_unlock,unlock}
 ```

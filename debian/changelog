@@ -1,3 +1,9 @@
+xivo-res-freeze-check (25.07~20250512) wazo-dev-bullseye; urgency=medium
+
+  * Add queues lock check
+
+-- Wazo Maintainers <dev+pkg@wazo.community>  Mon, 12 May 2025 14:44:42 -0500
+
 xivo-res-freeze-check (18.12~20181022.1) wazo-dev-stretch; urgency=medium
 
   * upgrade for asterisk 16
@@ -27,4 +33,3 @@ xivo-res-freeze-check (0.0.1) UNRELEASED; urgency=low
   * Initial release.
 
  -- Pascal Cadotte Michaud <pcadottemichaud@avencall.com>  Thu, 10 Jul 2014 11:01:48 -0400
-
