@@ -7,11 +7,13 @@
 #include <asterisk/lock.h>
 #include <asterisk/logger.h>
 #include <asterisk/module.h>
+#include <asterisk/paths.h>
 #include <asterisk/pbx.h>
 #include <asterisk/vector.h>
 #include <sys/eventfd.h>
 
 #include <dlfcn.h>
+#include <limits.h>
 
 #define DEFAULT_CHECK_INTERVAL_SECS 60
 #define DEFAULT_CHECK_TIMEOUT_SECS 30
@@ -113,6 +115,7 @@ static struct ast_app *app_queue;
 static struct checker global_checker;
 static int dangerous_commands_enabled = 0;
 static int queue_checks_enabled = 1;
+void *app_queue_lib = NULL;
 
 struct ao2_container* (*ast_queues_get_container)(void);
 
@@ -403,19 +406,36 @@ static struct ast_cli_entry cli_entries[] = {
 static int load_module(void)
 {
 	int everything_present = 1;
+	char *error;
+	char app_queue_filename[PATH_MAX];
+
 	if ((app_queue = pbx_findapp("Queue"))) {
 		if (!app_queue->module) {
 			everything_present = 0;
 		}
-		if (everything_present && !app_queue->module->lib) {
-			everything_present = 0;
+		while (!app_queue->module->flags.running) {
+			sleep(2);
+		}
+		if (everything_present) {
+			snprintf(
+				app_queue_filename,
+				sizeof(app_queue_filename),
+				"%s/%s",
+				ast_config_AST_MODULE_DIR,
+				"app_queue.so"
+			);
+			app_queue_lib = dlopen(app_queue_filename, RTLD_LAZY | RTLD_GLOBAL);
+			if (app_queue_lib == NULL) {
+				ast_log(LOG_WARNING, "Could not open app_queue.so: %s", dlerror());
+				everything_present = 0;
+			}
 		}
 		if (everything_present) {
 			dlerror();
-			/* NOTE(afournier): maybe an issue with name mangling */
-			ast_queues_get_container = dlsym(app_queue->module->lib, "ast_queues_get_container");
-			if (!ast_queues_get_container) {
-				ast_log(LOG_WARNING, "Could not load from dynamic library: %s", dlerror());
+			ast_queues_get_container = (struct ao2_container* (*)(void))dlsym(app_queue_lib, "ast_queues_get_container");
+			error = dlerror();
+			if (!ast_queues_get_container || error != NULL) {
+				ast_log(LOG_WARNING, "Could not load from dynamic library: %s", error);
 				everything_present = 0;
 			}
 		}
@@ -454,10 +474,14 @@ static int unload_module(void)
 	checker_stop(&global_checker);
 	checker_destroy(&global_checker);
 
+	if (app_queue_lib != NULL) {
+		dlclose(app_queue_lib);
+	}
+
 	return 0;
 }
 
-AST_MODULE_INFO(ASTERISK_GPL_KEY, AST_MODFLAG_DEFAULT, "Freeze Detection Module",
+AST_MODULE_INFO(ASTERISK_GPL_KEY, AST_MODFLAG_GLOBAL_SYMBOLS | AST_MODFLAG_DEFAULT, "Freeze Detection Module",
 	.load = load_module,
 	.unload = unload_module,
 	.optional_modules = "app_queue",
