@@ -112,7 +112,7 @@ struct ast_app {
 static struct ast_app *app_queue;
 static struct checker global_checker;
 static int dangerous_commands_enabled = 0;
-static int queue_checks_enabled = 0;
+static int queue_checks_enabled = 1;
 
 struct ao2_container* (*ast_queues_get_container)(void);
 
@@ -402,13 +402,26 @@ static struct ast_cli_entry cli_entries[] = {
 
 static int load_module(void)
 {
+	int everything_present = 1;
 	if ((app_queue = pbx_findapp("Queue"))) {
-		ast_queues_get_container = dlsym(app_queue->module->lib, "ast_queues_get_container");
-		if (!ast_queues_get_container) {
+		if (!app_queue->module) {
+			everything_present = 0;
+		}
+		if (everything_present && !app_queue->module->lib) {
+			everything_present = 0;
+		}
+		if (everything_present) {
+			dlerror();
+			/* NOTE(afournier): maybe an issue with name mangling */
+			ast_queues_get_container = dlsym(app_queue->module->lib, "ast_queues_get_container");
+			if (!ast_queues_get_container) {
+				ast_log(LOG_WARNING, "Could not load from dynamic library: %s", dlerror());
+				everything_present = 0;
+			}
+		}
+		if (!everything_present) {
 			ast_log(LOG_WARNING, "The Queue application does not expose necessary symbols! Disabling queue checks.\n");
 			queue_checks_enabled = 0;
-		} else {
-			queue_checks_enabled = 1;
 		}
 	} else {
 		ast_log(LOG_WARNING, "There is no Queue application available. Disabling queue checks.\n");
