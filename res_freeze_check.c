@@ -447,5 +447,5 @@ static int unload_module(void)
 AST_MODULE_INFO(ASTERISK_GPL_KEY, AST_MODFLAG_DEFAULT, "Freeze Detection Module",
 	.load = load_module,
 	.unload = unload_module,
-	.requires = "app_queue",
+	.optional_modules = "app_queue",
 );
