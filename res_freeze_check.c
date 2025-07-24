@@ -458,8 +458,11 @@ static int unload_module(void)
 	return 0;
 }
 
-AST_MODULE_INFO(ASTERISK_GPL_KEY, AST_MODFLAG_DEFAULT, "Freeze Detection Module",
+AST_MODULE_INFO(ASTERISK_GPL_KEY, AST_MODFLAG_LOAD_ORDER, "Freeze Detection Module",
 	.load = load_module,
 	.unload = unload_module,
 	.optional_modules = "app_queue",
+	// to keep app_queue load priority and avoid invalid queue members state after restart
+	// see https://wazo-dev.atlassian.net/browse/WAZO-4196
+	.load_pri = AST_MODPRI_DEVSTATE_CONSUMER + 1,
 );
