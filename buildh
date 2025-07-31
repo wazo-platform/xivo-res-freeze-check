@@ -9,14 +9,14 @@ import os
 import subprocess
 import sys
 
-CONFIG_FILE = '~/.res_freeze_check-buildh-config'
+CONFIG_FILE = os.getenv('RES_FREEZE_CHECK_BUILDH_CONFIG','~/.res_freeze_check-buildh-config')
 SHELL = 'sh'
 
 
 def main() -> None:
     parsed_args = parse_args()
 
-    config_filename = os.path.expanduser(CONFIG_FILE)
+    config_filename = os.path.expanduser(parsed_args.config)
     try:
         config = read_config(config_filename)
     except OSError as e:
@@ -40,6 +40,7 @@ def main() -> None:
 def parse_args() -> Namespace:
     parser = ArgumentParser()
     parser.add_argument('-p', '--profile', default='default', help='profile to use')
+    parser.add_argument('-c', '--config', default=CONFIG_FILE, help='config file to use')
     parser.add_argument('command', choices=['make', 'makei'], help='command to execute')
     return parser.parse_args()
 
