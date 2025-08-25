@@ -1,7 +1,6 @@
 #include <asterisk.h>
 #include <asterisk/app.h>
 #include <asterisk/astobj2.h>
-#include <asterisk/channel.h>
 #include <asterisk/cli.h>
 #include <asterisk/dlinkedlists.h>
 #include <asterisk/lock.h>
@@ -177,12 +176,6 @@ static int checker_check_mutexes(struct checker *c)
 	struct ao2_iterator qiter;
 	void *q;	/* We don't really care about the type, we only want to lock/unlock it */
 
-	ret = check_mutex(ast_channels_get_mutex(), c->timeout, "global channels container");
-	if (ret == CHECK_MUTEX_TIMEDOUT) {
-		ast_log(LOG_ERROR, "failed to acquire the global channels container lock in under %d seconds\n", c->timeout);
-		return -1;
-	}
-
 	if (queue_checks_enabled) {
 		queues = ast_queues_get_container();
 		/* First checking container lock */
@@ -293,41 +286,6 @@ static char *cli_enable(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a
 	return CLI_SUCCESS;
 }
 
-static char *cli_channel(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
-{
-	const char *what;
-
-	switch (cmd) {
-		case CLI_INIT:
-			e->command = "freeze channel {lock|unlock}";
-			e->usage = "Usage: freeze channel {lock|unlock}\n";
-			return NULL;
-		case CLI_GENERATE:
-			return NULL;
-	}
-
-	what = a->argv[e->args - 1];
-
-	if (!dangerous_commands_enabled) {
-		ast_cli(a->fd, "Dangerous freeze CLI commands are disabled.\n");
-		return CLI_FAILURE;
-	}
-
-	if (!strcasecmp(what, "lock")) {
-		ast_mutex_lock(ast_channels_get_mutex());
-		ast_cli(a->fd, "The global channel container is now LOCKED\n");
-		ast_log(LOG_WARNING, "The global channel container is now LOCKED\n");
-	} else if (!strcasecmp(what, "unlock")) {
-		ast_mutex_unlock(ast_channels_get_mutex());
-		ast_cli(a->fd, "The global channel contained is now UNLOCKED.\n");
-		ast_log(LOG_WARNING, "The global channel container is now UNLOCKED\n");
-	} else {
-		return CLI_SHOWUSAGE;
-	}
-
-	return CLI_SUCCESS;
-}
-
 static char *cli_queue(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 {
 	const char *what;
@@ -396,7 +354,6 @@ static char *cli_queue(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 
 static struct ast_cli_entry cli_entries[] = {
 	AST_CLI_DEFINE(cli_enable, "Enable/Disable dangerous freeze CLI commands"),
-	AST_CLI_DEFINE(cli_channel, "Lock/Unlock the global channel container lock"),
 	AST_CLI_DEFINE(cli_queue, "Lock/Unlock the global queue container lock"),
 };
 
