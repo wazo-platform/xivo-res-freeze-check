@@ -2,7 +2,7 @@ xivo-res-freeze-check (25.07~20250512) wazo-dev-bullseye; urgency=medium
 
   * Add queues lock check
 
--- Wazo Maintainers <dev+pkg@wazo.community>  Mon, 12 May 2025 14:44:42 -0500
+ -- Wazo Maintainers <dev+pkg@wazo.community>  Mon, 12 May 2025 14:44:42 -0500
 
 xivo-res-freeze-check (18.12~20181022.1) wazo-dev-stretch; urgency=medium
 
