@@ -1,3 +1,9 @@
+xivo-res-freeze-check (25.14~20250922) wazo-dev-bullseye; urgency=medium
+
+  * Remove channels lock check
+
+ -- Wazo Maintainers <dev+pkg@wazo.community>  Mon, 22 Sep 2025 09:38:29 -0400
+
 xivo-res-freeze-check (25.07~20250512) wazo-dev-bullseye; urgency=medium
 
   * Add queues lock check
