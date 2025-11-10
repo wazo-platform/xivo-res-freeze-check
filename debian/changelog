@@ -1,3 +1,9 @@
+xivo-res-freeze-check (25.16~20251110) wazo-dev-bookworm; urgency=medium
+
+  * upgrade for asterisk 22.6.0
+
+ -- Wazo Maintainers <dev+pkg@wazo.community>  Mon, 10 Nov 2025 08:59:01 -0500
+
 xivo-res-freeze-check (25.07~20250512) wazo-dev-bullseye; urgency=medium
 
   * Add queues lock check
