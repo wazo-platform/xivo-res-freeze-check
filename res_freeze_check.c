@@ -94,6 +94,7 @@ struct ast_app {
 	int (*execute)(struct ast_channel *chan, const char *data);
 	AST_DECLARE_STRING_FIELDS(
 		AST_STRING_FIELD(synopsis);     /*!< Synopsis text for 'show applications' */
+		AST_STRING_FIELD(provided_by);  /*!< Provided-by text for 'show applications' */
 		AST_STRING_FIELD(since);        /*!< Since text for 'show applications' */
 		AST_STRING_FIELD(description);  /*!< Description (help text) for 'show application &lt;name&gt;' */
 		AST_STRING_FIELD(syntax);       /*!< Syntax text for 'core show applications' */
