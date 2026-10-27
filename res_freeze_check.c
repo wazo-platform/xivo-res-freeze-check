@@ -118,7 +118,7 @@ static int use_rwlock = 0;
 
 static struct ao2_container* (*ast_queues_get_container)(void);
 
-static int check_mutex(void *mutex, int timeout, const char *name)
+static int check_mutex(void *mutex, int is_rwlock, int timeout, const char *name)
 {
 	struct timespec abs_timeout;
 	int result;
@@ -133,14 +133,14 @@ static int check_mutex(void *mutex, int timeout, const char *name)
 	abs_timeout.tv_sec += timeout;
 
 	ast_debug(1, "Testing if mutex \"%s\" can be locked in less than %d seconds...\n", name, timeout);
-	if(use_rwlock) {
+	if(is_rwlock) {
 		ret = pthread_rwlock_timedrdlock(&((ast_rwlock_t*)mutex)->lock, &abs_timeout);
 	} else {
 		ret = pthread_mutex_timedlock(&((ast_mutex_t*)mutex)->mutex, &abs_timeout);
 	}
 	switch (ret) {
 	case 0:
-		if(use_rwlock){
+		if(is_rwlock){
 			pthread_rwlock_unlock(&((ast_rwlock_t*)mutex)->lock);
 		} else {
 			pthread_mutex_unlock(&((ast_mutex_t*)mutex)->mutex);
@@ -187,7 +187,7 @@ static int checker_check_mutexes(struct checker *c)
 	struct ao2_iterator qiter;
 	void *q;	/* We don't really care about the type, we only want to lock/unlock it */
 
-	ret = check_mutex(ast_channels_get_mutex(), c->timeout, "global channels container");
+	ret = check_mutex(ast_channels_get_mutex(), use_rwlock, c->timeout, "global channels container");
 	if (ret == CHECK_MUTEX_TIMEDOUT) {
 		ast_log(LOG_ERROR, "failed to acquire the global channels container lock in under %d seconds\n", c->timeout);
 		return -1;
@@ -195,8 +195,8 @@ static int checker_check_mutexes(struct checker *c)
 
 	if (queue_checks_enabled) {
 		queues = ast_queues_get_container();
-		/* First checking container lock */
-		ret = check_mutex(ao2_object_get_lockaddr(queues), c->timeout, "global queues container");
+		/* Queue locks are always mutexes, whatever the channel storage driver */
+		ret = check_mutex(ao2_object_get_lockaddr(queues), 0, c->timeout, "global queues container");
 		if (ret == CHECK_MUTEX_TIMEDOUT) {
 			ast_log(LOG_ERROR, "failed to acquire the global queues container lock in under %d seconds\n", c->timeout);
 			return -1;
@@ -204,12 +204,15 @@ static int checker_check_mutexes(struct checker *c)
 		/* Then each individual queues */
 		qiter = ao2_iterator_init(queues, 0);
 		while ((q = ao2_t_iterator_next(&qiter, "Iterate over queues"))) {
-			ret = check_mutex(ao2_object_get_lockaddr(q), c->timeout, "individual queue");
+			ret = check_mutex(ao2_object_get_lockaddr(q), 0, c->timeout, "individual queue");
+			ao2_ref(q, -1);
 			if (ret == CHECK_MUTEX_TIMEDOUT) {
 				ast_log(LOG_ERROR, "failed to acquire the individual queue lock in under %d seconds\n", c->timeout);
+				ao2_iterator_destroy(&qiter);
 				return -1;
 			}
 		}
+		ao2_iterator_destroy(&qiter);
 	}
 
 	return 0;
@@ -392,7 +395,9 @@ static char *cli_queue(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 		qiter = ao2_iterator_init(queues, 0);
 		while ((q = ao2_t_iterator_next(&qiter, "Iterate over queues"))) {
 			ast_mutex_lock(ao2_object_get_lockaddr(q));
+			ao2_ref(q, -1);
 		}
+		ao2_iterator_destroy(&qiter);
 		ast_cli(a->fd, "All queues are now LOCKED\n");
 		ast_log(LOG_WARNING, "All queues are now LOCKED\n");
 	} else if (!strcasecmp(what, "global_unlock")) {
@@ -403,7 +408,9 @@ static char *cli_queue(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 		qiter = ao2_iterator_init(queues, 0);
 		while ((q = ao2_t_iterator_next(&qiter, "Iterate over queues"))) {
 			ast_mutex_unlock(ao2_object_get_lockaddr(q));
+			ao2_ref(q, -1);
 		}
+		ao2_iterator_destroy(&qiter);
 		ast_cli(a->fd, "All queues are now UNLOCKED.\n");
 		ast_log(LOG_WARNING, "All queues are now UNLOCKED\n");
 	} else {
