@@ -121,6 +121,11 @@ static int dangerous_commands_enabled = 0;
 static int queue_checks_enabled = 1;
 static enum lock_type channels_lock_type = LOCK_MUTEX;
 
+/* Queues locked by 'freeze queue lock', each holding a reference */
+AST_VECTOR(queue_vector, void *);
+static struct queue_vector locked_queues;
+AST_MUTEX_DEFINE_STATIC(locked_queues_lock);
+
 static struct ao2_container* (*ast_queues_get_container)(void);
 
 static int check_mutex(void *mutex, enum lock_type type, int timeout, const char *name)
@@ -407,13 +412,20 @@ static char *cli_queue(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 		ast_cli(a->fd, "The global queue container is now LOCKED\n");
 		ast_log(LOG_WARNING, "The global queue container is now LOCKED\n");
 	} else if (!strcasecmp(what, "lock")) {
+		ast_mutex_lock(&locked_queues_lock);
 		qiter = ao2_iterator_init(queues, 0);
 		while ((q = ao2_t_iterator_next(&qiter, "Iterate over queues"))) {
 			ast_mutex_lock(ao2_object_get_lockaddr(q));
 			/* Keep the iterator's reference: the queue must outlive
 			 * the lock we hold until 'freeze queue unlock'. */
+			if (AST_VECTOR_APPEND(&locked_queues, q)) {
+				ast_mutex_unlock(ao2_object_get_lockaddr(q));
+				ao2_ref(q, -1);
+				ast_log(LOG_ERROR, "Could not record a locked queue, left it unlocked\n");
+			}
 		}
 		ao2_iterator_destroy(&qiter);
+		ast_mutex_unlock(&locked_queues_lock);
 		ast_cli(a->fd, "All queues are now LOCKED\n");
 		ast_log(LOG_WARNING, "All queues are now LOCKED\n");
 	} else if (!strcasecmp(what, "global_unlock")) {
@@ -421,12 +433,13 @@ static char *cli_queue(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 		ast_cli(a->fd, "The global queue container is now UNLOCKED.\n");
 		ast_log(LOG_WARNING, "The global queue container is now UNLOCKED\n");
 	} else if (!strcasecmp(what, "unlock")) {
-		qiter = ao2_iterator_init(queues, 0);
-		while ((q = ao2_t_iterator_next(&qiter, "Iterate over queues"))) {
+		ast_mutex_lock(&locked_queues_lock);
+		while (AST_VECTOR_SIZE(&locked_queues)) {
+			q = AST_VECTOR_REMOVE(&locked_queues, AST_VECTOR_SIZE(&locked_queues) - 1, 1);
 			ast_mutex_unlock(ao2_object_get_lockaddr(q));
 			ao2_ref(q, -1);
 		}
-		ao2_iterator_destroy(&qiter);
+		ast_mutex_unlock(&locked_queues_lock);
 		ast_cli(a->fd, "All queues are now UNLOCKED.\n");
 		ast_log(LOG_WARNING, "All queues are now UNLOCKED\n");
 	} else {
@@ -476,6 +489,10 @@ static int load_module(void)
 		channels_lock_type = LOCK_RWLOCK;
 	}
 
+	if (AST_VECTOR_INIT(&locked_queues, 0)) {
+		goto fail1;
+	}
+
 	if (checker_init(&global_checker)) {
 		goto fail1;
 	}
@@ -491,6 +508,7 @@ static int load_module(void)
 fail2:
 	checker_destroy(&global_checker);
 fail1:
+	AST_VECTOR_FREE(&locked_queues);
 
 	return AST_MODULE_LOAD_DECLINE;
 }
@@ -501,6 +519,13 @@ static int unload_module(void)
 
 	checker_stop(&global_checker);
 	checker_destroy(&global_checker);
+
+	/* Queues still locked are left as is: unlocking needs the locking thread */
+	if (AST_VECTOR_SIZE(&locked_queues)) {
+		ast_log(LOG_WARNING, "Unloading with %zu queues still locked\n", AST_VECTOR_SIZE(&locked_queues));
+	} else {
+		AST_VECTOR_FREE(&locked_queues);
+	}
 
 	return 0;
 }
