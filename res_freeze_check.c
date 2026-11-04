@@ -18,6 +18,11 @@
 
 #define CHECK_MUTEX_TIMEDOUT 1
 
+enum lock_type {
+	LOCK_MUTEX,
+	LOCK_RWLOCK,
+};
+
 /*
  * asterisk defines a macro "pthread_mutex_unlock" to force people to use
  * ast_mutex_unlock, but since we are directly locking a pthread_mutex_t with
@@ -114,15 +119,25 @@ static struct ast_app *app_queue;
 static struct checker global_checker;
 static int dangerous_commands_enabled = 0;
 static int queue_checks_enabled = 1;
-static int use_rwlock = 0;
+static enum lock_type channels_lock_type = LOCK_MUTEX;
+
+/* Queues locked by 'freeze queue lock', each holding a reference */
+AST_VECTOR(queue_vector, void *);
+static struct queue_vector locked_queues;
+AST_MUTEX_DEFINE_STATIC(locked_queues_lock);
 
 static struct ao2_container* (*ast_queues_get_container)(void);
 
-static int check_mutex(void *mutex, int timeout, const char *name)
+static int check_mutex(void *mutex, enum lock_type type, int timeout, const char *name)
 {
 	struct timespec abs_timeout;
 	int result;
 	int ret;
+
+	if (!mutex) {
+		ast_log(LOG_WARNING, "check mutex skipped: no lock address for \"%s\"\n", name);
+		return -1;
+	}
 
 	ret = clock_gettime(CLOCK_REALTIME, &abs_timeout);
 	if (ret == -1) {
@@ -133,14 +148,14 @@ static int check_mutex(void *mutex, int timeout, const char *name)
 	abs_timeout.tv_sec += timeout;
 
 	ast_debug(1, "Testing if mutex \"%s\" can be locked in less than %d seconds...\n", name, timeout);
-	if(use_rwlock) {
+	if (type == LOCK_RWLOCK) {
 		ret = pthread_rwlock_timedrdlock(&((ast_rwlock_t*)mutex)->lock, &abs_timeout);
 	} else {
 		ret = pthread_mutex_timedlock(&((ast_mutex_t*)mutex)->mutex, &abs_timeout);
 	}
 	switch (ret) {
 	case 0:
-		if(use_rwlock){
+		if (type == LOCK_RWLOCK) {
 			pthread_rwlock_unlock(&((ast_rwlock_t*)mutex)->lock);
 		} else {
 			pthread_mutex_unlock(&((ast_mutex_t*)mutex)->mutex);
@@ -151,7 +166,8 @@ static int check_mutex(void *mutex, int timeout, const char *name)
 		result = CHECK_MUTEX_TIMEDOUT;
 		break;
 	default:
-		ast_log(LOG_ERROR, "check mutex failed: pthread_mutex_timedlock: %s\n", strerror(ret));
+		ast_log(LOG_ERROR, "check mutex \"%s\" failed: %s: %s\n", name,
+			type == LOCK_RWLOCK ? "pthread_rwlock_timedrdlock" : "pthread_mutex_timedlock", strerror(ret));
 		result = -1;
 		break;
 	}
@@ -187,7 +203,7 @@ static int checker_check_mutexes(struct checker *c)
 	struct ao2_iterator qiter;
 	void *q;	/* We don't really care about the type, we only want to lock/unlock it */
 
-	ret = check_mutex(ast_channels_get_mutex(), c->timeout, "global channels container");
+	ret = check_mutex(ast_channels_get_mutex(), channels_lock_type, c->timeout, "global channels container");
 	if (ret == CHECK_MUTEX_TIMEDOUT) {
 		ast_log(LOG_ERROR, "failed to acquire the global channels container lock in under %d seconds\n", c->timeout);
 		return -1;
@@ -195,8 +211,12 @@ static int checker_check_mutexes(struct checker *c)
 
 	if (queue_checks_enabled) {
 		queues = ast_queues_get_container();
-		/* First checking container lock */
-		ret = check_mutex(ao2_object_get_lockaddr(queues), c->timeout, "global queues container");
+		if (!queues) {
+			ast_log(LOG_WARNING, "check skipped: could not obtain queues container\n");
+			return 0;
+		}
+		/* Queue locks are always mutexes, whatever the channel storage driver */
+		ret = check_mutex(ao2_object_get_lockaddr(queues), LOCK_MUTEX, c->timeout, "global queues container");
 		if (ret == CHECK_MUTEX_TIMEDOUT) {
 			ast_log(LOG_ERROR, "failed to acquire the global queues container lock in under %d seconds\n", c->timeout);
 			return -1;
@@ -204,12 +224,15 @@ static int checker_check_mutexes(struct checker *c)
 		/* Then each individual queues */
 		qiter = ao2_iterator_init(queues, 0);
 		while ((q = ao2_t_iterator_next(&qiter, "Iterate over queues"))) {
-			ret = check_mutex(ao2_object_get_lockaddr(q), c->timeout, "individual queue");
+			ret = check_mutex(ao2_object_get_lockaddr(q), LOCK_MUTEX, c->timeout, "individual queue");
+			ao2_ref(q, -1);
 			if (ret == CHECK_MUTEX_TIMEDOUT) {
 				ast_log(LOG_ERROR, "failed to acquire the individual queue lock in under %d seconds\n", c->timeout);
+				ao2_iterator_destroy(&qiter);
 				return -1;
 			}
 		}
+		ao2_iterator_destroy(&qiter);
 	}
 
 	return 0;
@@ -324,7 +347,7 @@ static char *cli_channel(struct ast_cli_entry *e, int cmd, struct ast_cli_args *
 	}
 
 	if (!strcasecmp(what, "lock")) {
-		if(use_rwlock) {
+		if (channels_lock_type == LOCK_RWLOCK) {
 			/* We need to write lock to be able to cause a deadlock */
 			ast_rwlock_wrlock((ast_rwlock_t*)ast_channels_get_mutex());
 		} else {
@@ -333,7 +356,7 @@ static char *cli_channel(struct ast_cli_entry *e, int cmd, struct ast_cli_args *
 		ast_cli(a->fd, "The global channel container is now LOCKED\n");
 		ast_log(LOG_WARNING, "The global channel container is now LOCKED\n");
 	} else if (!strcasecmp(what, "unlock")) {
-		if(use_rwlock) {
+		if (channels_lock_type == LOCK_RWLOCK) {
 			ast_rwlock_unlock((ast_rwlock_t*)ast_channels_get_mutex());
 		} else {
 			ast_mutex_unlock((ast_mutex_t*)ast_channels_get_mutex());
@@ -389,10 +412,20 @@ static char *cli_queue(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 		ast_cli(a->fd, "The global queue container is now LOCKED\n");
 		ast_log(LOG_WARNING, "The global queue container is now LOCKED\n");
 	} else if (!strcasecmp(what, "lock")) {
+		ast_mutex_lock(&locked_queues_lock);
 		qiter = ao2_iterator_init(queues, 0);
 		while ((q = ao2_t_iterator_next(&qiter, "Iterate over queues"))) {
 			ast_mutex_lock(ao2_object_get_lockaddr(q));
+			/* Keep the iterator's reference: the queue must outlive
+			 * the lock we hold until 'freeze queue unlock'. */
+			if (AST_VECTOR_APPEND(&locked_queues, q)) {
+				ast_mutex_unlock(ao2_object_get_lockaddr(q));
+				ao2_ref(q, -1);
+				ast_log(LOG_ERROR, "Could not record a locked queue, left it unlocked\n");
+			}
 		}
+		ao2_iterator_destroy(&qiter);
+		ast_mutex_unlock(&locked_queues_lock);
 		ast_cli(a->fd, "All queues are now LOCKED\n");
 		ast_log(LOG_WARNING, "All queues are now LOCKED\n");
 	} else if (!strcasecmp(what, "global_unlock")) {
@@ -400,10 +433,13 @@ static char *cli_queue(struct ast_cli_entry *e, int cmd, struct ast_cli_args *a)
 		ast_cli(a->fd, "The global queue container is now UNLOCKED.\n");
 		ast_log(LOG_WARNING, "The global queue container is now UNLOCKED\n");
 	} else if (!strcasecmp(what, "unlock")) {
-		qiter = ao2_iterator_init(queues, 0);
-		while ((q = ao2_t_iterator_next(&qiter, "Iterate over queues"))) {
+		ast_mutex_lock(&locked_queues_lock);
+		while (AST_VECTOR_SIZE(&locked_queues)) {
+			q = AST_VECTOR_REMOVE(&locked_queues, AST_VECTOR_SIZE(&locked_queues) - 1, 1);
 			ast_mutex_unlock(ao2_object_get_lockaddr(q));
+			ao2_ref(q, -1);
 		}
+		ast_mutex_unlock(&locked_queues_lock);
 		ast_cli(a->fd, "All queues are now UNLOCKED.\n");
 		ast_log(LOG_WARNING, "All queues are now UNLOCKED\n");
 	} else {
@@ -448,6 +484,15 @@ static int load_module(void)
 		queue_checks_enabled = 0;
 	}
 
+	/* Set before the checker thread starts, which reads it unsynchronised */
+	if (!strcasecmp(ast_channel_get_current_storage_driver_name(), "cpp_map_name_id")) {
+		channels_lock_type = LOCK_RWLOCK;
+	}
+
+	if (AST_VECTOR_INIT(&locked_queues, 0)) {
+		goto fail1;
+	}
+
 	if (checker_init(&global_checker)) {
 		goto fail1;
 	}
@@ -456,9 +501,6 @@ static int load_module(void)
 		goto fail2;
 	}
 
-	if(!strcasecmp(ast_channel_get_current_storage_driver_name(), "cpp_map_name_id")) {
-		use_rwlock = 1;
-	}
 	ast_cli_register_multiple(cli_entries, ARRAY_LEN(cli_entries));
 
 	return AST_MODULE_LOAD_SUCCESS;
@@ -466,6 +508,7 @@ static int load_module(void)
 fail2:
 	checker_destroy(&global_checker);
 fail1:
+	AST_VECTOR_FREE(&locked_queues);
 
 	return AST_MODULE_LOAD_DECLINE;
 }
@@ -476,6 +519,13 @@ static int unload_module(void)
 
 	checker_stop(&global_checker);
 	checker_destroy(&global_checker);
+
+	/* Queues still locked are left as is: unlocking needs the locking thread */
+	if (AST_VECTOR_SIZE(&locked_queues)) {
+		ast_log(LOG_WARNING, "Unloading with %zu queues still locked\n", AST_VECTOR_SIZE(&locked_queues));
+	} else {
+		AST_VECTOR_FREE(&locked_queues);
+	}
 
 	return 0;
 }
